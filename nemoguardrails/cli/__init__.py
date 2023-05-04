@@ -24,6 +24,12 @@ from nemoguardrails.actions_server import actions_server
 from nemoguardrails.cli.chat import run_chat
 from nemoguardrails.server import api
 
+import sys
+
+sys.path.append("/workspace")
+
+from proxy import *
+
 app = typer.Typer()
 
 
@@ -86,6 +92,8 @@ def server(
         help="Path to a directory containing multiple configuration sub-folders.",
     ),
 ):
+    
+    
     """Starts a NeMo Guardrails server."""
     if config:
         api.app.rails_config_path = config[0]
