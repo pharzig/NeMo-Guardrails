@@ -595,6 +595,53 @@ def _resolve_gotos(elements: List[dict]) -> List[dict]:
     return elements
 
 
+def _process_ellipsis(elements):
+    """Helper to process the "..." element.
+
+    The "..." syntax is used as a syntactic sugar, to create more readable colang code.
+    There will be multiple use cases for "...". The first one is for `generate_value` action.
+
+    1. Generate Value
+
+    When the value of a variable is assigned to "...", we use the comment right above
+    as instructions to generate the value.
+
+       ```
+       # Extract the math query from the user's input.
+       $math_query = ...
+       ```
+
+       will be replaced with
+
+       ```
+       $math_query = generate_value("Extract the math query from the user's input")
+       ```
+    """
+    new_elements = []
+
+    for i in range(len(elements)):
+        element = elements[i]
+
+        if element["_type"] == "set" and element["expression"] == "...":
+            instructions = element.get("_source_mapping", {}).get("comment")
+            var_name = element["key"]
+
+            new_elements.append(
+                {
+                    "_type": "run_action",
+                    "action_name": "generate_value",
+                    "action_params": {
+                        "instructions": instructions,
+                    },
+                    "action_result_key": var_name,
+                }
+            )
+        else:
+            new_elements.append(element)
+
+    return new_elements
+
+
 def parse_flow_elements(items):
     """Parses the flow elements from CoYML format to CIL format."""
     # Extract
@@ -602,6 +649,9 @@ def parse_flow_elements(items):
 
     # And resolve goto's
     elements = _resolve_gotos(elements)
+
+    # Finally, we proces the ellipsis syntax
+    elements = _process_ellipsis(elements)
 
     return elements
 

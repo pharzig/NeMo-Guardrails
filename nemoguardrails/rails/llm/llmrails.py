@@ -15,16 +15,20 @@
 
 """LLM Rails entry point."""
 import asyncio
+import importlib.util
 import logging
 import os
-from typing import List, Optional
+import time
+from typing import Any, List, Optional
 
-from langchain.llms import BaseLLM, OpenAI
+from langchain.llms.base import BaseLLM
 
 from nemoguardrails.actions.llm.generation import LLMGenerationActions
 from nemoguardrails.actions.llm.utils import get_colang_history
 from nemoguardrails.flows.runtime import Runtime
 from nemoguardrails.language.parser import parse_colang_file
+from nemoguardrails.llm.providers import get_llm_provider, get_llm_provider_names
+from nemoguardrails.logging.stats import llm_stats
 from nemoguardrails.rails.llm.config import RailsConfig
 from nemoguardrails.rails.llm.utils import get_history_cache_key
 
@@ -58,6 +62,16 @@ class LLMRails:
         # We add the default flows to the config.
         self.config.flows.extend(default_flows)
 
+        # We check if the configuration has a config.py module associated with it.
+        config_module = None
+        if self.config.config_path:
+            filepath = os.path.join(self.config.config_path, "config.py")
+            if os.path.exists(filepath):
+                filename = os.path.basename(filepath)
+                spec = importlib.util.spec_from_file_location(filename, filepath)
+                config_module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(config_module)
+
         # First, we initialize the runtime.
         self.runtime = Runtime(config=config, verbose=verbose)
 
@@ -71,6 +85,10 @@ class LLMRails:
         # We also register the kb as a parameter that can be passed to actions.
         self.runtime.register_action_param("kb", actions.kb)
 
+        # If we have a config_module with an `init` function, we call it.
+        if config_module is not None and hasattr(config_module, "init"):
+            config_module.init(self)
+
     def _init_llm(self):
         """Initializes the right LLM engine based on the configuration."""
 
@@ -82,10 +100,30 @@ class LLMRails:
         #  to search for the main model config.
         main_llm_config = self.config.models[0]
 
-        if main_llm_config.engine == "openai":
-            self.llm = OpenAI(model_name=main_llm_config.model, temperature=0.1)
-        else:
+        if main_llm_config.engine not in get_llm_provider_names():
             raise Exception(f"Unknown LLM engine: {main_llm_config.engine}")
+
+        provider_cls = get_llm_provider(main_llm_config)
+
+        # We need to compute the kwargs for initializing the LLM
+        kwargs = main_llm_config.parameters
+
+        # We also need to pass the model, if specified
+        if main_llm_config.model:
+            # Some LLM providers use `model_name` instead of model. For backward compatibility
+            # we keep this hard-coded mapping.
+            if main_llm_config.engine in [
+                "azure",
+                "openai",
+                "gooseai",
+                "nlpcloud",
+                "petals",
+            ]:
+                kwargs["model_name"] = main_llm_config.model
+            else:
+                kwargs["model"] = main_llm_config.model
+
+        self.llm = provider_cls(**kwargs)
 
     async def generate_async(
         self, prompt: Optional[str] = None, messages: Optional[List[dict]] = None
@@ -111,6 +149,9 @@ class LLMRails:
 
         # TODO: Add support to load back history of events, next to history of messages
         #   This is important as without it, the LLM prediction is not as good.
+
+        t0 = time.time()
+        llm_stats.reset()
 
         # First, we turn the messages into a history of events.
         cache_key = get_history_cache_key(messages, include_last=False)
@@ -141,6 +182,8 @@ class LLMRails:
             history = get_colang_history(events)
             log.info(f"Conversation history so far: \n{history}")
 
+        log.info("--- :: Total processing took %.2f seconds." % (time.time() - t0))
+        log.info("--- :: Stats: %s" % llm_stats)
         return {"role": "assistant", "content": "\n".join(responses)}
 
     def generate(
@@ -164,3 +207,7 @@ class LLMRails:
     def register_action(self, action: callable, name: Optional[str] = None):
         """Register a custom action for the rails configuration."""
         self.runtime.register_action(action, name)
+
+    def register_action_param(self, name: str, value: Any):
+        """Registers a custom action parameter."""
+        self.runtime.register_action_param(name, value)

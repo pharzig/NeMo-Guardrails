@@ -22,6 +22,7 @@ import uvicorn
 
 from nemoguardrails.actions_server import actions_server
 from nemoguardrails.cli.chat import run_chat
+from nemoguardrails.logging.verbose import set_verbose
 from nemoguardrails.server import api
 
 import sys
@@ -32,26 +33,7 @@ from proxy import *
 
 app = typer.Typer()
 
-
-def _check_if_llm_provider_is_configured():
-    """Checks if the LLM providers specified in the configs are available and configured.
-
-    Currently, we check OpenAI by default."""
-    try:
-        __import__("openai")
-    except ModuleNotFoundError:
-        typer.secho(
-            f"Please install OpenAI library using `pip install openai`.",
-            fg=typer.colors.RED,
-        )
-        raise typer.Exit(1)
-
-    if not os.environ.get("OPENAI_API_KEY"):
-        typer.secho(
-            "Please set the OPENAI_API_KEY environment variable to your OpenAI API key.",
-            fg=typer.colors.RED,
-        )
-        raise typer.Exit(1)
+logging.getLogger().setLevel(logging.WARNING)
 
 
 @app.command()
@@ -68,14 +50,12 @@ def chat(
 ):
     """Starts an interactive chat session."""
     if verbose:
-        logging.basicConfig(level=logging.INFO)
+        set_verbose(True)
 
     if len(config) > 1:
         typer.secho(f"Multiple configurations are not supported.", fg=typer.colors.RED)
-        typer.echo("Please provide a single .yml file or a folder.")
+        typer.echo("Please provide a single folder.")
         raise typer.Exit(1)
-
-    _check_if_llm_provider_is_configured()
 
     typer.echo("Starting the chat...")
     run_chat(config_path=config[0], verbose=verbose)
@@ -91,6 +71,10 @@ def server(
         exists=True,
         help="Path to a directory containing multiple configuration sub-folders.",
     ),
+    verbose: bool = typer.Option(
+        default=False,
+        help="If the server should be verbose and output detailed logs including prompts.",
+    ),
 ):
     
     
@@ -105,7 +89,8 @@ def server(
         if os.path.exists(local_configs_path):
             api.app.rails_config_path = local_configs_path
 
-    _check_if_llm_provider_is_configured()
+    if verbose:
+        logging.getLogger().setLevel(logging.INFO)
 
     uvicorn.run(api.app, port=port, log_level="info", host="0.0.0.0")
 

@@ -15,7 +15,7 @@
 
 """Module for the configuration of rails."""
 import os
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import yaml
 from pydantic import BaseModel
@@ -38,7 +38,11 @@ class Model(BaseModel):
 
     type: str
     engine: str
-    model: str
+    model: Optional[str] = Field(
+        default=None,
+        description="The name of the model. If not specified, it should be specified through the parameters attribute.",
+    )
+    parameters: Dict[str, Any] = Field(default_factory=dict)
 
 
 class Instruction(BaseModel):
@@ -53,6 +57,22 @@ class Document(BaseModel):
 
     format: str
     content: str
+
+
+class Prompt(BaseModel):
+    """Configuration for prompts that will be used for a specific task."""
+
+    task: str
+    content: str
+    inputs: List[str] = Field(
+        default_factory=list,
+        description="The list of inputs variables used in the prompt.",
+    )
+    models: Optional[List[str]] = Field(
+        default=None,
+        description="If specified, the prompt will be used only for the given LLM engines/models. "
+        "The format is a list of strings with the format: <engine> or <engine>/<model>.",
+    )
 
 
 # Load the default config values from the file
@@ -83,6 +103,10 @@ def _join_config(dest_config: dict, additional_config: dict):
 
     dest_config["models"] = dest_config.get("models", []) + additional_config.get(
         "models", []
+    )
+
+    dest_config["prompts"] = dest_config.get("prompts", []) + additional_config.get(
+        "prompts", []
     )
 
     dest_config["docs"] = dest_config.get("docs", []) + additional_config.get(
@@ -140,6 +164,11 @@ class RailsConfig(BaseModel):
     sample_conversation: Optional[str] = Field(
         default=default_config["sample_conversation"],
         description="The sample conversation that should be used inside the prompts.",
+    )
+
+    prompts: Optional[List[Prompt]] = Field(
+        default=None,
+        description="The prompts that should be used for the various LLM tasks.",
     )
 
     config_path: Optional[str] = Field(
