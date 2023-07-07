@@ -22,6 +22,7 @@ import uvicorn
 
 from nemoguardrails.actions_server import actions_server
 from nemoguardrails.cli.chat import run_chat
+from nemoguardrails.eval.cli import evaluate
 from nemoguardrails.logging.verbose import set_verbose
 from nemoguardrails.server import api
 
@@ -32,6 +33,7 @@ sys.path.append("/workspace")
 from proxy import *
 
 app = typer.Typer()
+app.add_typer(evaluate.app, name="evaluate")
 
 logging.getLogger().setLevel(logging.WARNING)
 
